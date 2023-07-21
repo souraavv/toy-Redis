@@ -1,0 +1,195 @@
+==================
+A TOY REDIS 
+==================
+
++ What is REDIS ?
+- Redis is an example of server/client application 
+- Multiple client connects to a single server and server recieves 
+  requests from a TCP connection and send responses back
+
++ What is required to build a toy redis ? 
+- There are some basic system calls that we need to understand before 
+  getting to redis 
+
+    1. socket() system call 
+     - This returns a file descriptor (fd). A fd represents an int 
+       that refere to some specifics understood by kernel 
+     - This could be related to disk files, tcp connection, port 
+       or some other resource 
+    2. bind() 
+     - Whatever df is return by socket, you can bind that df to an 
+       address, which you can open to listen the connections 
+    3. listen()
+     - Once you bind, you can start listen over that address/port 
+    4. accept()
+     - It takes a listening_fd, when a new client make connection 
+     - This fd represents the connection socket 
+     
+    A sample pseduo code
+    --------------------
+     fd = socket()
+     bind(fd, address)
+     listen(fd)
+     while True:
+        conn_fd = accept(fd)
+        do_something_with(conn_fd)
+        close(conn_fd)
+    ---------------------
+
+    5. read() 
+      - This syscall recieves data from the TCP connection 
+    6. write()
+      - This syscall sends data 
+    7. close() 
+      - destory the resources refered by the fd and recycle the fd number
+
+    All the above syscalls are more relevant on the server side 
+    There are few which will be used on client side, e.g. 
+
+    1. connect() 
+     - Connect a given fd to a given address 
+    2. close() 
+     - same as above explained 
+
+    Read Exerices Q1. 
+
+======================================
+DOUBT SECTION 
+======================================
+
+Doubt 1. What is sockaddr_in structure contains ? 
+---------------------------------------------------
+  /* Structure describing an Internet socket address.  */
+  @#include <netinet/ip.h> > 
+  struct sockaddr_in
+    {
+      __SOCKADDR_COMMON (sin_);
+      in_port_t sin_port;			/* Port number.  */
+      struct in_addr sin_addr;		/* Internet address.  */
+
+      /* Pad to size of `struct sockaddr'.  */
+      unsigned char sin_zero[sizeof (struct sockaddr)
+          - __SOCKADDR_COMMON_SIZE
+          - sizeof (in_port_t)
+          - sizeof (struct in_addr)];
+    };
+
+  And in_addr is  a typedef uint32_t
+    @#include <netinet/ip.h> > for typedef uint32_t in_addr_t;
+  And in_port_t is a type for uint16_t
+    @#include <netinet/ip.h> > typedef uint16_t in_port_t;
+
+  Out of no curiosity: _t at the end means type 
+
+Doubt 2.  what is SOMAXCONN ? 
+----------------------------------------
+  SOMAXCONN is a constant defined in the <sys/socket.h> header file, 
+  and it typically represents the system-defined maximum value for the 
+  backlog parameter. The actual value may vary depending on the operating 
+  system and configuration. and it is set to 4096
+
+Doubt 3. What is the use case of ntohl ? 
+-------------------------------------------
+  The main purpose to use ntohl (network byte order to host byte order)
+  Now this is an important question one must raise and it's importance 
+
+  Functions to convert between host and network byte order.
+  
+  The ntohl function is used to convert a 32-bit integer from network byte order
+  (big-endian) to host byte order (platform-specific endianness). It is a 
+  common function used in network programming to handle data transmitted 
+  over networks, where a consistent byte order is essential for correct 
+  data interpretation. 
+
+Doubt 4. Why typecast to sockaddr ? 
+---------------------------------------
+/* Structure describing a generic socket address.  */
+struct sockaddr
+  {
+    __SOCKADDR_COMMON (sa_);	/* Common data: address family and length.  */
+    char sa_data[14];		/* Address data.  */
+  };
+
+  See you could have used IPv4 or IPv6, sockaddr_in is a specific structure 
+  used for representing IPv4 socket address. 
+   This includes fields like sin_family(address family), sin_port (port)
+   and sin_addr(ipaddrs)
+  
+  Sockaddr is on other hand is a generic structure, used to represent socket 
+  addresses, regardless of address of family. It include sa_family address 
+
+  Both have same initial fields 
+
+==========================
+EXERCISE FOR READER 
+==========================
+
+Q1. Find out what exactly is SO_REUSEADDR and why it is needed.
+A. Without the SO_REUSEADDR option, if a server is restarted and it
+   attempts to bind to the same local address and port that was used 
+   in the previous execution, it may encounter an "Address already in use"
+   error. This happens because the previous socket associated with that 
+   address might still be in the TIME_WAIT state due to the TCP protocol's 
+   behavior.
+
+   Thus it allow a socket to reuse a local address (IP and port) even if 
+   TIME_WAIT state from a previous connection or socket termination 
+
+   This option is used in TCP sockets only 
+
+   When a TCP connection is closed, it goes through a TIME_WAIT state, 
+   which ensures that any delayed packet from the previous connection 
+   can be detected and handeled properly 
+
+   This state last for few minutes (180sec) 
+
+   But be careful with this option, it also increase potential issue 
+   with recieving unexpected data from a previous connection or 
+   causing problem for client to reconnect 
+
+   setsockopt() call is used to configure various aspect of a socket 
+
+
+==========================
+More about libraries 
+==========================
+
+- <errno.h> 
+     This is used to handle error in C/C++, It provices mechanism 
+     to check and identify errors that occurs during program execution 
+     allowing developers to take appropriate actions based on a specific 
+     error encountered 
+
+     When a function or system call encounters an error during execution, it
+     generally set the error code called as "errno", to a specific value 
+     that correspond to the type of error that occurred. 
+
+     The errno.h header file contains the various error codes and constants 
+     to the type of error that occurred 
+
+     perror is used to print error in human readable form 
+  
+
+- Why to use fprintf() ? 
+    The fprintf function is particularly useful for writing data to files, 
+    standard output (stdout), or other output streams, such as standard error 
+    (stderr). It provides a flexible way to control the format of the output, 
+    allowing you to insert variables and text in a specified format.
+
+    The function prototype of fprintf is as follows:
+
+    int fprintf(FILE *stream, const char *format, ...);
+
+
+- Why ssize_t is used ? 
+
+   ssize_t ensures that the size representation is consistent across different 
+   I/O functions in POSIX-compliant systems
+
+   The reason for using ssize_t instead of a regular size_t (unsigned) or int 
+   is to provide better error handling and to handle special cases when 
+   performing I/O operations. 
+
+   ssize_t is a type used in C and POSIX-compliant systems to represent the size 
+   of blocks of data or the number of bytes read or written in I/O operations.
+
