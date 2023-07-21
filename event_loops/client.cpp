@@ -9,8 +9,8 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
-const size_t k_max_msg = 4096;
-const uint8_t header_length = 4;
+static const size_t MSG_MAX_LEN = 4096;
+static const uint8_t HEADER_LEN = 4;
 
 static void die(const char *msg) {
     int err = errno;
@@ -56,24 +56,21 @@ static int32_t write_all(int fd, const char* buffer, size_t n) {
 }
 
 
-static int32_t query(int fd, const char* text) {
-    uint32_t text_length = (uint32_t)strlen(text);
-    if (text_length > k_max_msg) {
+static int32_t send_request(int fd, const char* text) {
+    uint32_t len = (uint32_t)strlen(text);
+    if (len > MSG_MAX_LEN) {
         return -1;
     }
+    char write_buffer[HEADER_LEN + MSG_MAX_LEN];
+    memcpy(&write_buffer, &len, 4); // assuming little indian 4 bytes
+    memcpy(&write_buffer[HEADER_LEN], text, len);
+    return write_all(fd, write_buffer, HEADER_LEN + len);
+}
 
-    char write_buffer[header_length + k_max_msg];
-    memcpy(write_buffer, &text_length, 4);
-    memcpy(&write_buffer[header_length], text, text_length);
-    if (int32_t err = write_all(fd, write_buffer, header_length + text_length)) {
-        return err;
-    }
-
-    // four byte header 
-
-    char read_buffer[header_length + k_max_msg];
+static int32_t read_response(int fd) {
+    char read_buffer[HEADER_LEN + MSG_MAX_LEN + 1];
     errno = 0;
-    int32_t err = read_full(fd, read_buffer, header_length);
+    int32_t err = read_full(fd, read_buffer, HEADER_LEN);
     if (err) {
         if (errno == 0) {
             msg("EOF");
@@ -83,22 +80,22 @@ static int32_t query(int fd, const char* text) {
         }
         return err;
     }
-
-    uint32_t reply_length = 0;
-    memcpy(&reply_length, read_buffer, 4); // read the length send by the server ;
-    if (reply_length > k_max_msg) {
+    uint32_t len = 0;
+    memcpy(&len, read_buffer, HEADER_LEN);
+    if (len > MSG_MAX_LEN) {
         msg("too long");
         return -1;
     }
+
     // reply body 
-    err = read_full(fd, &read_buffer[header_length], reply_length);
+    err = read_full(fd, &read_buffer[HEADER_LEN], len); // write data from fd to read_buffer starting @HEADER_LEN 
     if (err) {
-        msg("read() error");
+        msg("read() err");
         return err;
     }
 
-    read_buffer[header_length + reply_length] = '\0';
-    printf("Server is saying: %s\n", &read_buffer[header_length]);
+    read_buffer[HEADER_LEN + len] = '\0';
+    printf("server says: %s\n", &read_buffer[HEADER_LEN]);
     return 0;
 }
 
@@ -110,26 +107,31 @@ int main() {
 
     struct sockaddr_in addr = {};
     addr.sin_family = AF_INET; 
-    addr.sin_port = ntohs(3000); // port number where to send.
+    addr.sin_port = ntohs(3001); // port number where to send.
     addr.sin_addr.s_addr = ntohl(INADDR_LOOPBACK); // 127.0.0.1 or localhost (send this packet to self.)
 
     int return_value = connect(fd, (const struct sockaddr *)& addr, sizeof(addr));
 
-    if (return_value < 0) {
+    if (return_value) {
         die("connect()");
     }
 
-    int32_t err = query(fd, "hello1");
-    if (err) {
-        goto L_DONE;
+    // multiple pipelined request 
+    
+    const char *query_list[3] = {"hello1", "hello2", "hello3"};
+    for (size_t i = 0; i < 3; ++i) {
+        printf ("Sending request with message: %s\n", query_list[i]);
+        int32_t err = send_request(fd, query_list[i]);
+        if (err) {
+            goto L_DONE;
+        }
     }
-    err = query(fd, "hello2");
-    if (err) {
-        goto L_DONE;
-    }
-    err = query(fd, "hello3");
-    if (err) {
-        goto L_DONE;
+
+    for (size_t i = 0; i < 3; ++i) {
+        int32_t err = read_response(fd);
+        if (err) {
+            goto L_DONE;
+        }
     }
 
 L_DONE:

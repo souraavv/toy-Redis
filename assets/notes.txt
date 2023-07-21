@@ -88,9 +88,143 @@ Well we have started with the basic, now we will extend this
   which complicates things.
 - Other thing which is not good in "protocol_parsing" module is that we are using 
   2 systemcall read() to get the data, this can be reduced by using bufferedIO 
-  
 
 
+05. Event loop and non-blocking IO 
+*************************************
+
+- There are 3 main ways to deal with the concurrent connections 
+  1. Forking : Creates a new process for each client connection 
+  2. Multi-threading : Create a thread to handle a client 
+  3. Event loops : Async in nature, or non-blocking similar to node 
+
+- We keep doing polling for the fd's which are active and ready to operate 
+  immediately 
+
+- In blocking mode, read blocks the caller when there is no data in the kernel, 
+  write blocks when the write buffer is full, and accept blocks when there are no 
+  new connections in the kernel queue 
+
+- In non-blocking mode, those operations either success without blocking, or fail 
+  with the errno EAGAIN, refering to the "Not ready"
+
+- The poll is only the sole blocking operation in an event loop, everything else must 
+  be nonblocking; thus a single thread can handle multiple concurrent connections 
+  All blocking networking IO APIs, such as read, write, and accept, have a nonblocking 
+  mode. APIs that do not have a nonblocking mode, such as gethostbyname and disk IOs,
+  sould be performed in thread pools 
+
+- Also there must be timers within event loop since we can't sleep waiting inside the 
+  timer loops 
+
+- The syscall for setting an fd to nonblocking mode is fcntl
+
+static void fd_set_nb(int fd) {
+  errno = 0;
+  int flags  = fcntl(fd, F_GETFL, 0);
+  if (errno) {
+    die("fcntl error");
+    return;
+  }
+
+  flags |= O_NONBLOCK;
+
+  errno = 0;
+  (void)fcntl(fd, F_SETFL, flags);
+  if (errno) {
+    die("fctnl error");
+  }
+}
+
+On linux, beside the poll syscall, there are also select and epoll 
+
+
+The epoll API in C is a powerful mechanism provided on Linux-based systems 
+for efficiently handling large numbers of file descriptors and performing I/O 
+multiplexing. It is designed to scale well and outperform traditional methods 
+like select and poll when dealing with a large number of concurrent connections, 
+such as in high-performance network servers.
+
+The key functions and data structures related to the epoll API are defined in 
+<sys/epoll.h> header file. Here's an overview of the epoll API:
+
+Create an epoll instance:
+
+      int epoll_create(int size);
+
+This function creates an epoll instance and returns a file descriptor representing 
+the epoll instance. The size parameter is a hint indicating the maximum number of 
+file descriptors that can be registered with this epoll instance. It doesn't affect 
+the actual size of the instance, which can dynamically grow as needed.
+
+Register file descriptors for monitoring:
+
+      int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event);
+
+This function is used to add or remove file descriptors to/from the epoll 
+instance or modify their monitoring status. The epfd is the file descriptor 
+of the epoll instance returned by epoll_create. The op parameter can be one of the 
+following values:
+
+  EPOLL_CTL_ADD: Add a file descriptor to be monitored.
+  EPOLL_CTL_MOD: Modify the monitoring status of an existing file descriptor.
+  EPOLL_CTL_DEL: Remove a file descriptor from monitoring.
+The fd parameter represents the file descriptor to be registered/modified/removed. 
+The event parameter is a pointer to a struct epoll_event that specifies the events 
+to monitor for the given file descriptor.
+
+Wait for events:
+
+int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout);
+This function waits for events to occur on file descriptors registered with the 
+epoll instance. It blocks until at least one event is available or until the specified 
+timeout (in milliseconds) expires. When events are available, the function returns the 
+number of events received and fills the events array with relevant information. 
+The maxevents parameter indicates the maximum number of events that can be returned 
+in the events array.
+
+The struct epoll_event is defined as follows:
+
+      struct epoll_event {
+          uint32_t events;  // Bitmask specifying the events that occurred.
+          epoll_data_t data; // User data associated with the file descriptor.
+      };
+
+The events field represents the type of events that occurred on the monitored 
+file descriptor (e.g., EPOLLIN for read events, EPOLLOUT for write events, etc.). 
+The data field can hold user-specific data associated with the file descriptor.
+
+The epoll API allows you to efficiently manage I/O events for a 
+large number of file descriptors, making it ideal for high-performance network 
+applications and servers. It is widely used in modern server applications that 
+handle thousands or even millions of concurrent connections efficiently.
+
+
+@ With pollfd 
+- /* Data structure describing a polling request.  */
+struct pollfd
+  {
+    int fd;			/* File descriptor to poll.  */
+    short int events;		/* Types of events poller cares about.  */
+    short int revents;		/* Types of events that actually occurred.  */
+  };
+
+
+- We have 3 states in state machine 
+
+- First client get's a connection using connect()
+  and then it sends the request to the server 
+- Server on recieving a request since it's is polling and listeing POLLIN for all 
+  the fresh connection, on recieving a request, it will ask statemachine to call 
+  the state_req(), which internally will call the try_fill_buffer, which mean 
+  it will read the connect of the request generated by the client and try to hold 
+  that content in the read_buffer (conn object) and that call of functionally internally 
+  will keep trying to send the response to the client back by calling try_one_request,
+  try_one_request will call the try_flush_buffer, by writting to the connection fd correspond 
+  to the client connection. The main point is we are delaying things and keeping our local 
+  storage i.e buffer to handle multiple clients without getting blocked for a single 
+  client and thus we are able to handle multiple request. We are only serving those 
+  connection fd which recieved the POLLIN event
 
 ======================================
 DOUBT SECTION 
