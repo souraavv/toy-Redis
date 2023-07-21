@@ -1,1 +1,2 @@
-This is a dummy redis and two collaborators.
+## Implementation of Redis
+This project shall be about the implementation of Redis.
