@@ -1,1 +1,1 @@
-This is a dummy redis.
+This is a dummy redis and two collaborators.
