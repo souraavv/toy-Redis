@@ -10,6 +10,7 @@
 
 // functions are defined static to limit their scope to this 
 // file only to avoid name conflicts (or encaptualtion too)
+
 static void die(const char *msg) {
     int err = errno;
     fprintf(stderr, "[%d] %s\n", err, msg);

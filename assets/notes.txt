@@ -53,6 +53,45 @@ A TOY REDIS
 
     Read Exerices Q1. 
 
+Well we have started with the basic, now we will extend this 
+
+
+04. Protocols Parsing 
+**************************************
+
+- Our server can accept multiple request from a single client 
+- We also want to extend this to multiple client 
+- We need some sort of protocols to split request apart from the 
+  TCP byte stream 
+- Our protocol consists of 2 parts: a 4 byte little-endian integer 
+  indicating the actual length of the request, and the variable 
+  length request 
+- Our server will be able to handle a single connection at a time 
+  until and unless we introduce event loop in the later
+- We have designed a basic protocol (first 4 bytes as the length of msg)
+  and then we made our wrappers to read() and write() sys call to ensure 
+  that we are reading the complete 
+- But designing protocol can be trickly, should we store infomation 
+  in header in text or binary ? Text create sometimes lot of problem
+  because of it's dynamic size nature, whereas fixed binary can be 
+  less tedious to work with 
+- Also answer whether these fixed length protocols can be used in 
+  streaming data ? where continous data is coming ? What changes you 
+  will make for that ? A good example for this is "Chunked Transfer 
+  Encoding" from the HTTP protocol 
+- Chunked encoding wraps incoming data into a message format that starts 
+  with the length of the message. The client receives a stream of messages, 
+  until a special message indicates the end of the stream.
+- There is also an alternative but bad way to do this: Use a special character 
+  (delimiter) to indicate the end of the stream. The problem is that the payload 
+  data encoding can not contain the delimiter, you need some “escape” mechanism, 
+  which complicates things.
+- Other thing which is not good in "protocol_parsing" module is that we are using 
+  2 systemcall read() to get the data, this can be reduced by using bufferedIO 
+  
+
+
+
 ======================================
 DOUBT SECTION 
 ======================================
