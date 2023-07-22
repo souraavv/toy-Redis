@@ -226,6 +226,17 @@ struct pollfd
   client and thus we are able to handle multiple request. We are only serving those 
   connection fd which recieved the POLLIN event
 
+- Once we are done with the event loop, we can add the commands to the server 
+
+- Again we will define the protocol for that 
+ - nstr, len, str1, len, str2, ...
+   where nstr is the total number of strings, and len followed by the string 
+ - And response is 
+    res, data 
+    where res is 32-bit response code and data is the data 
+
+- Handle request 
+  - 
 ======================================
 DOUBT SECTION 
 ======================================
