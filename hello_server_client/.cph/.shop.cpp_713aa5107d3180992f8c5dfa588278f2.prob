@@ -1,1 +1,0 @@
-{"name":"Local: shop","url":"/home/arjun/Desktop/Projects/dummySA/hello_server_client/shop.cpp","tests":[{"id":1690003336380,"input":"4\n1 1 0 0","output":"2"}],"interactive":false,"memoryLimit":1024,"timeLimit":3000,"srcPath":"/home/arjun/Desktop/Projects/dummySA/hello_server_client/shop.cpp","group":"local","local":true}
