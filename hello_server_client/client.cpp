@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
+#include <cstring>
 static void die(int line_number, const char *err_msg)
 {
     fprintf(stderr, "line number : %d and the error msg : %s \n", line_number, err_msg);
