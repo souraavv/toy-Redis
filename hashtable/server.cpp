@@ -14,6 +14,11 @@
 #include <string>
 #include <vector>
 
+#include "hashtable.h"
+
+#define get_outer_wrapper_of_hnode(ptr, type, member) ({                  \
+    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+    (type *)( (char *)__mptr - offsetof(type, member) );})
 
 // functions are defined static to limit their scope to this 
 // file only to avoid name conflicts (or encaptualtion too)
@@ -32,6 +37,8 @@ static void msg(const char* msg) {
     fprintf(stderr, "%s\n", msg);
 }
 
+/// @brief We are making the fd which is open by socket as non-blocking to make things asycn
+/// @param fd : of the socket
 static void set_fd_to_non_blocking(int fd) {
     errno = 0;
     int flags = fcntl(fd, F_GETFL, 0); // get the flags, initially set the value of flags to 0
@@ -74,7 +81,24 @@ struct Conn {
     uint8_t write_buffer[HEADER_LEN + MSG_MAX_LEN]; // fixed sized
 };
 
+// structure for the key and value 
+struct Entry {
+    struct Hnode node;
+    std::string key;
+    std::string val;
+};
 
+
+// the datastructure for key spaces 
+static struct {
+    HashMap db;
+} g_data;
+
+
+/// @brief Whenever a new client join, then this function is called, this is first time connection
+/// @param fd_to_conn : Here we will store the connection object mapped by the fd opened for that connection 
+/// @param fd : fd of the server, used by accept syscall to accept the connection from client
+/// @return success or failure, whether client successfully connect or fails
 static int32_t accept_new_connection(std::vector<Conn* >& fd_to_conn, int fd) {
     // accept a new connection 
     struct sockaddr_in client_addr = {};
@@ -111,6 +135,11 @@ static int32_t accept_new_connection(std::vector<Conn* >& fd_to_conn, int fd) {
 static void state_res(Conn *conn);
 static void state_req(Conn *conn);
 
+/// @brief used to parse the request, we are using a protocol to send the request
+/// @param raw_request : obtained from the client.
+/// @param end_pos : The total length of the request.
+/// @param parsed_request : Final parsed request which server can understand.
+/// @return whether parsable ? success(0) or failure (-1)
 static int32_t parse_request(
     const uint8_t *raw_request, 
     size_t end_pos, 
@@ -146,45 +175,144 @@ static bool is_same(const std::string &word, const char *cmd) {
     return strcasecmp(word.c_str(), cmd) == 0;
 }
 
-// Below are 3 api: get, set, del 
+/// @brief to check if both lhs and rhs are same or different
+/// @param lhs type of Hnode
+/// @param rhs type of Hnode
+/// @return boolean value, true if same, else false 
+static bool comparator_function(Hnode *lhs, Hnode *rhs) {
+    struct Entry *le = get_outer_wrapper_of_hnode(lhs, struct Entry, node);
+    struct Entry *re = get_outer_wrapper_of_hnode(rhs, struct Entry, node);
+    return lhs->hcode == rhs->hcode && le->key == re->key;
+}
+
+/// @brief 
+/// @param data 
+/// @param len 
+/// @return 
+static uint64_t str_hash(const uint8_t *data, size_t len) {
+    uint32_t h = 0x811C9DC5; // a random prime ? 
+    for (size_t i = 0; i < len; i++) {
+        h = (h + data[i]) * 0x01000193;
+    }
+    return h; // get a unique hash value for a key, so that we can have uniform distribution in hashmap
+}
+
+
+/**
+ * @brief get api for the REDIS server, client send the get request with the key
+ * Note that we have written a non-generic hashmap and their is no way we can are incorporating
+ * the key and value, so what is the way for this ? There is one way, actually we create a 
+ * new struct Entry, where first field is the node and thus we first find the node in the 
+ * hashmap and once we have that we are asking for the address of the it's outer container
+ * Thus we get the access to the wrapper outside of Hnode i.e Entry and now we can have 
+ * the val field
+ * @param parsed_request : Parsed request which parse_request() returned
+ * @param res : response to the client to the get request
+ * @param res_len : length of response 
+ * @return uint32_t : ENUM type for response (success / failure)
+ */
 static uint32_t get(std::vector<std::string>& parsed_request, 
     uint8_t *res, 
     uint32_t *res_len
 ) {
-    if (!map.count(parsed_request[1])) {
+
+    Entry cur;
+    cur.key.swap(parsed_request[1]); // the key which we have passed, get[0] key[1]
+    cur.node.hcode = str_hash((uint8_t *)cur.key.data(), cur.key.size());
+    printf ("reached\n");
+    Hnode *node = hashmap_lookup(&g_data.db, &cur.node, &comparator_function);
+    if (!node) {
         return RES_NX;
     }
-    std::string &val = map[parsed_request[1]];
+
+    const std::string &val = get_outer_wrapper_of_hnode(node, Entry, node)->val;
+    assert(val.size() <= MSG_MAX_LEN);
     memcpy(res, val.data(), val.size());
-    *res_len = (uint32_t) val.size();
+    *res_len = (uint32_t)val.size();
     return RES_OK;
 }
 
+/**
+ * @brief 
+ * 
+ * @param parsed_request 
+ * @param res 
+ * @param res_len 
+ * @return uint32_t 
+ */
 static uint32_t set(std::vector<std::string> &parsed_request, 
     uint8_t *res, 
     uint32_t *res_len 
 ) {
     (void)res;
     (void)res_len;
-    map[parsed_request[1]] = parsed_request[2];
+
+    Entry cur; // simply created a structure instance
+    cur.key.swap(parsed_request[1]); // set[0], key[1], value[2]
+    cur.node.hcode = str_hash((uint8_t *)cur.key.data(), cur.key.size());
+
+    Hnode *node = hashmap_lookup(&g_data.db, &cur.node, &comparator_function);
+    if (node) {
+        // if this already exists, then update
+        get_outer_wrapper_of_hnode(node, Entry, node)->val.swap(parsed_request[2]);
+    }
+    else {
+        // if this is the first entry, then insert
+        // Also does this mean the entry is just floating in the memory ? 
+        Entry *fresh_entry = new Entry(); // allocated memory on heap
+        fresh_entry->node.hcode = cur.node.hcode; // setup the node
+        fresh_entry->key.swap(cur.key); // key
+        fresh_entry->val.swap(parsed_request[2]); // value 
+        hashmap_insert(&g_data.db, &fresh_entry->node);
+    }
     return RES_OK;
 }
 
+/**
+ * @brief delete is used to remove the key from the hashmap, we first remove using hashmap_pop()
+ * Note that hashmap is not for handling the garbage cleaning in heap for entry, that is done differently, 
+ * neither entry is the owner
+ * for the Hnode, instead that is properly handled and cleaned by hashmap
+ * @param parsed_request : parsed request by parse_request() function
+ * @param res : response code
+ * @param res_len : response length
+ * @return uint32_t : success of failure 
+ */
 static uint32_t del(std::vector<std::string> &parsed_request, 
     uint8_t *res, 
     uint32_t *res_len
 ) {
     (void)res;
     (void)res_len;
-    map.erase(map.find(parsed_request[1]));
+
+    std::string key = parsed_request[1];
+
+    Entry cur;
+    cur.key.swap(key);
+    cur.node.hcode = str_hash((uint8_t *)cur.key.data(), cur.key.size());
+    Hnode *node = hashmap_pop(&g_data.db, &cur.node, &comparator_function);
+
+    if (node) {
+        // clean the outer wrapper of Hnode, i.e Entry 
+        delete get_outer_wrapper_of_hnode(node, Entry, node);
+    }
     return RES_OK;
 }
 
+/**
+ * @brief 
+ * 
+ * @param raw_request 
+ * @param req_len 
+ * @param res_code 
+ * @param res 
+ * @param res_len 
+ * @return int32_t 
+ */
 static int32_t handle_request(const uint8_t *raw_request, uint32_t req_len, 
         uint32_t* res_code, uint8_t *res, uint32_t *res_len) {
     
     std::vector<std::string> parsed_request;
-    
     
     if (parse_request(raw_request, req_len, parsed_request) != 0) {
         msg ("bad request at during executing handle_request()");
@@ -210,6 +338,13 @@ static int32_t handle_request(const uint8_t *raw_request, uint32_t req_len,
     return 0;
 }
 
+/**
+ * @brief 
+ * 
+ * @param conn 
+ * @return true 
+ * @return false 
+ */
 static bool try_one_request(Conn* conn) {
     if (conn->read_buffer_size < 4) {
         // not enough data for this cycle, please try later.
@@ -259,6 +394,13 @@ static bool try_one_request(Conn* conn) {
 }
 
 // flush the write buffer to the fd
+/**
+ * @brief 
+ * 
+ * @param conn 
+ * @return true 
+ * @return false 
+ */
 static bool try_flush_buffer(Conn* conn) {
     ssize_t return_value = 0;
     do {
@@ -296,6 +438,14 @@ static void state_res(Conn* conn) {
 }
 
 // fill the read buffer from the fd, 
+
+/**
+ * @brief 
+ * 
+ * @param conn 
+ * @return true 
+ * @return false 
+ */
 static bool try_fill_buffer(Conn* conn) {
     assert(conn->read_buffer_size < sizeof(conn->read_buffer));
     ssize_t return_value = 0;

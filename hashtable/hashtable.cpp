@@ -4,6 +4,10 @@
 #include "hashtable.h"
 
 
+const size_t MAX_LOAD_FACTOR = 8;
+const size_t RESIZE_WORK = 128;
+
+
 /// @brief initialize the hashtable with default value, like size
 /// @param hash_table : pointer to the HashTable for which we are doing init 
 /// @param n : size of hashtable, for simplicity this is kept as a power of 2
@@ -18,7 +22,8 @@ static void hashtable_init(HashTable *hash_table, size_t n) {
 /// @param hash_table : Table in which you want to insert 
 /// @param node : node which you want to insert
 void hashtable_insert(HashTable *hash_table, Hnode *node) {
-    size_t pos = node->val & hash_table->mask;
+    size_t pos = node->hcode & hash_table->mask; // isn't this is same as node->hcode ? 
+    assert(pos <= hash_table->mask);
     Hnode *next = hash_table->container[pos];
     // insert at the head;
     node->next = next;
@@ -32,16 +37,17 @@ void hashtable_insert(HashTable *hash_table, Hnode *node) {
 /// @param cmp : Comparator function
 /// @return the node if that exists
 static Hnode **hashtable_lookup(HashTable *hash_table, Hnode *key, bool(*cmp)(Hnode*, Hnode*)) {
-    if (hash_table->container == NULL) {
+    if (!hash_table->container) {
         return NULL;
     }
-    size_t pos = key->val & hash_table->mask;
+    size_t pos = key->hcode & hash_table->mask;
+    assert (pos <= hash_table->mask);
     Hnode **from = &hash_table->container[pos]; // to hold the address of a pointer we need pointer to pointer 
-    while (from) {
+    while (*from) {
         if (cmp(*from, key)) {
-            return from;
+            return from; // ok, got that.
         }
-        from = &(*from)->next;
+        from = &(*from)->next; // since from is a pointer to pointer to Hnode, thus we are passing & of the next Hnode
     }
     return NULL; // doesn't exists
 }
@@ -57,10 +63,10 @@ static Hnode * hashtable_pop(HashTable *hash_table, Hnode **from) {
     return node;
 }
 
-const size_t RESIZE_WORK = 128;
 
 /// @brief This is helper function for dynamic resizing, without putting load
 /// @param hash_map 
+
 static void helper_resizing(HashMap *hash_map) {
     // if nothing to move from hashtable 2
     if (hash_map->ht2.container == NULL) {
@@ -68,13 +74,14 @@ static void helper_resizing(HashMap *hash_map) {
     }
     size_t work = 0;
     while (work < RESIZE_WORK && hash_map->ht2.size > 0) {
-        Hnode **from = &hash_map->ht2.container[hash_map->resizing_pos]; // take the complete array of HashNodes pointed by this index, since this is a pointer to hold this we need a pointer to pointer
+        Hnode **from = &hash_map->ht2.container[hash_map->resizing_pos]; // get the node from hashtable2
         if (!*from) {
             // If the list is empty then nothing to do, simply go to the next index
-            hash_map->resizing_pos++;
+            hash_map->resizing_pos++; 
             continue;
         }
         // insert the value which are temporary passed to the hashtable 2 back to the hashtable 1
+        // wondering why we are not increasing resizing pos here ? Note that we are poping out from from hash_map 
         hashtable_insert(&hash_map->ht1, hashtable_pop(&hash_map->ht2, from));
         work++;
     }
@@ -101,10 +108,12 @@ Hnode *hashmap_lookup(HashMap *hash_map, Hnode* key, bool(*cmp)(Hnode*, Hnode*))
     return from ? *from : NULL; // If rust was then we don't have to worry about the NULL pointer de-ref :)
 }
 
-const size_t MAX_LOAD_FACTOR = 8;
 
-/// @brief 
-/// @param hash_map 
+/**
+ * @brief This is a resizing function. When size of fall short then we are filling
+ * @param hash_map 
+ * @return * void 
+ */
 static void start_resizing(HashMap *hash_map) {
     assert (hash_map->ht2.container == NULL);
     // create a bigger hash_table and resize
@@ -113,9 +122,12 @@ static void start_resizing(HashMap *hash_map) {
     hash_map->resizing_pos = 0; // reset so that next time, ht1 start picking from index 0 of hashtable 2.
 }
 
-/// @brief 
-/// @param hash_map 
-/// @param node 
+/**
+ * @brief insert the node into hashmap
+ * 
+ * @param hash_map : insert into this hashmap
+ * @param node : node which is getting to the hashmap
+ */
 void hashmap_insert(HashMap *hash_map, Hnode* node) {
     if (hash_map->ht1.container == NULL) {
         hashtable_init(&hash_map->ht1, 4);
@@ -129,17 +141,28 @@ void hashmap_insert(HashMap *hash_map, Hnode* node) {
             start_resizing(hash_map);
         }
     }
+    // dealying and slowing doing the operation 
     helper_resizing(hash_map);
 }
 
 
+/**
+ * @brief pop the element from the hashmap
+ * 
+ * @param hash_map : Hashmap from which we need to pop 
+ * @param key : key which we want to pop
+ * @param cmp : comparator function 
+ * @return Hnode* : the node which we want to pop
+ */
 Hnode * hashmap_pop(HashMap *hash_map, Hnode *key, bool(*cmp)(Hnode *, Hnode *)) {
     helper_resizing(hash_map); 
+    // first try to pop it from the hastable 1
     Hnode **from = hashtable_lookup(&hash_map->ht1, key, cmp);
 
     if (from) {
         return hashtable_pop(&hash_map->ht1, from);
     }
+    // and then try to pop it from hashtable 2
     from = hashtable_lookup(&hash_map->ht2, key, cmp);
     if (from) {
         return hashtable_pop(&hash_map->ht2, from);
@@ -147,3 +170,14 @@ Hnode * hashmap_pop(HashMap *hash_map, Hnode *key, bool(*cmp)(Hnode *, Hnode *))
     return NULL;
 }
 
+
+/**
+ * @brief Destroy the full hashmap, clean all the memory
+ * @param hash_map : hash_map which we want to clean
+ */
+void hashmap_destroy(HashMap *hash_map) {
+    assert(hash_map->ht1.size + hash_map->ht2.size == 0);
+    free(hash_map->ht1.container); // free up container ht1
+    free(hash_map->ht2.container); // free up container ht2
+    *hash_map = HashMap{}; // update the content to a fresh container.
+}

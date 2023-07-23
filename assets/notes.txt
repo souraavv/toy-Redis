@@ -367,6 +367,9 @@ More about libraries
 
 - Why ssize_t is used ? 
 
+   size_t is an unsigned integer data type that is used to represent the size of 
+   objects or memory regions in bytes
+
    ssize_t ensures that the size representation is consistent across different 
    I/O functions in POSIX-compliant systems
 
@@ -377,3 +380,8 @@ More about libraries
    ssize_t is a type used in C and POSIX-compliant systems to represent the size 
    of blocks of data or the number of bytes read or written in I/O operations.
 
+   This is system dependent, i.e for a 32 bit system it is 32 bit and for a 64 bit 
+   system it is 64 bit 
+
+   This is useful when we are dealing with portability across different platform 
+   
