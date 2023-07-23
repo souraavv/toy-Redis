@@ -233,12 +233,12 @@ static uint32_t get(std::vector<std::string>& parsed_request,
 }
 
 /**
- * @brief 
+ * @brief set the value of the given key
  * 
  * @param parsed_request 
- * @param res 
- * @param res_len 
- * @return uint32_t 
+ * @param res : response (null)
+ * @param res_len : response length
+ * @return uint32_t : response status 
  */
 static uint32_t set(std::vector<std::string> &parsed_request, 
     uint8_t *res, 
@@ -300,14 +300,15 @@ static uint32_t del(std::vector<std::string> &parsed_request,
 }
 
 /**
- * @brief 
+ * @brief This will re-direct the request based on parsed_request either it is
+ * get, set or del
  * 
- * @param raw_request 
- * @param req_len 
- * @param res_code 
- * @param res 
- * @param res_len 
- * @return int32_t 
+ * @param raw_request : takes the raw request, so that it can be parsed
+ * @param req_len : length of request
+ * @param res_code : response code to client 
+ * @param res : response 
+ * @param res_len : response length
+ * @return int32_t : status (succes /failure)
  */
 static int32_t handle_request(const uint8_t *raw_request, uint32_t req_len, 
         uint32_t* res_code, uint8_t *res, uint32_t *res_len) {
@@ -339,11 +340,11 @@ static int32_t handle_request(const uint8_t *raw_request, uint32_t req_len,
 }
 
 /**
- * @brief 
- * 
+ * @brief This is fired by try_fill_buffer, inorder to send the response to the client 
+ * request 
  * @param conn 
- * @return true 
- * @return false 
+ * @return true : if success
+ * @return false : if fails 
  */
 static bool try_one_request(Conn* conn) {
     if (conn->read_buffer_size < 4) {
@@ -395,11 +396,11 @@ static bool try_one_request(Conn* conn) {
 
 // flush the write buffer to the fd
 /**
- * @brief 
+ * @brief flush the write buffer to the connection fd with a given client
  * 
- * @param conn 
- * @return true 
- * @return false 
+ * @param conn : connection object (a stateful object, write-buffer, read-buffer, status all that goes here)
+ * @return true : If success
+ * @return false : if fails
  */
 static bool try_flush_buffer(Conn* conn) {
     ssize_t return_value = 0;
@@ -437,11 +438,8 @@ static void state_res(Conn* conn) {
     while (try_flush_buffer(conn)) {}
 }
 
-// fill the read buffer from the fd, 
-
 /**
- * @brief 
- * 
+ * @brief fill the read buffer form the connection fd, from the conn
  * @param conn 
  * @return true 
  * @return false 
@@ -484,6 +482,12 @@ static void state_req(Conn* conn) {
 }
 
 // state-machine (see in which state conn object is now)
+
+/**
+ * @brief statemachine, which is a DFA, keep moving from one state to another
+ * 
+ * @param conn 
+ */
 static void connection_io(Conn* conn) {
     if (conn->state == STATE_REQ) {
         state_req(conn);
