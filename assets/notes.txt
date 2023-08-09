@@ -3,11 +3,10 @@ A TOY REDIS
 ==================
 
 + What is REDIS ?
-- Redis is an example of server/client application 
-- Multiple client connects to a single server and server recieves 
-  requests from a TCP connection and send responses back
+- Inmemory storage system
 
 + What is required to build a toy redis ? 
+- We want to build a server/client application
 - There are some basic system calls that we need to understand before 
   getting to redis 
 
